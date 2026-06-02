@@ -11,45 +11,16 @@ services:
     plan: free
     ipAllowList: []
 
-  # Web Service (FastAPI)
+  # Web Service (FastAPI + Celery)
   - type: web
     name: redditchecker-backend
     env: python
     plan: free
-    region: oregon
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    startCommand: "./start.sh"
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: redditchecker-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          name: redditchecker-redis
-          type: redis
-          property: connectionString
-      - key: CELERY_BROKER_URL
-        fromService:
-          name: redditchecker-redis
-          type: redis
-          property: connectionString
-      - key: CELERY_RESULT_BACKEND
-        fromService:
-          name: redditchecker-redis
-          type: redis
-          property: connectionString
-    rootDir: backend
-
-  # Background Worker (Celery)
-  - type: worker
-    name: redditchecker-celery
-    env: python
-    plan: free
-    region: oregon
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "celery -A celery_config.app worker --loglevel=info"
-    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
       - key: DATABASE_URL
         fromDatabase:
           name: redditchecker-db
