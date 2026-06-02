@@ -10,6 +10,8 @@ class Account(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, index=True)
     is_live = Column(Boolean, default=True)
+    total_karma = Column(Integer, nullable=True)
+    icon_img = Column(String, nullable=True)
     last_checked = Column(DateTime, default=datetime.datetime.utcnow)
 
     posts = relationship("Post", back_populates="account")

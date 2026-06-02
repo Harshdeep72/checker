@@ -67,15 +67,25 @@ def get_account_details(username: str, db: Session = Depends(get_db)):
     # Perform live check
     live_status = scraper.check_reddit_user(username)
     is_currently_live = live_status["is_live"]
+    raw_data = live_status.get("raw_data") or {}
+    
+    # Extract cacheable fields
+    total_karma = raw_data.get("total_karma")
+    icon_img = raw_data.get("icon_img") or raw_data.get("snoovatar_img")
     
     # Update or Create in DB
     account = db.query(models.Account).filter(models.Account.username == username).first()
     if not account:
-        account = models.Account(username=username, is_live=is_currently_live)
+        account = models.Account(username=username, is_live=is_currently_live,
+                                 total_karma=total_karma, icon_img=icon_img)
         db.add(account)
     else:
         account.is_live = is_currently_live
         account.last_checked = func.now()
+        if total_karma is not None:
+            account.total_karma = total_karma
+        if icon_img:
+            account.icon_img = icon_img
     
     db.commit()
     db.refresh(account)
@@ -85,8 +95,10 @@ def get_account_details(username: str, db: Session = Depends(get_db)):
         "id": account.id,
         "username": account.username,
         "is_live": account.is_live,
+        "total_karma": account.total_karma,
+        "icon_img": account.icon_img,
         "last_checked": account.last_checked,
-        "reddit_data": live_status.get("raw_data"),
+        "reddit_data": raw_data,
         "posts": [{"id": p.id, "url": p.url, "is_live": p.is_live} for p in account.posts],
         "comments": [{"id": c.id, "url": c.url, "is_live": c.is_live} for c in account.comments]
     }
@@ -165,7 +177,14 @@ def track_new_comment(req: TrackRequest, db: Session = Depends(get_db)):
 @router.get("/accounts")
 def get_all_accounts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     accounts = db.query(models.Account).order_by(models.Account.id.desc()).offset(skip).limit(limit).all()
-    return [{"id": a.id, "username": a.username, "is_live": a.is_live, "last_checked": a.last_checked} for a in accounts]
+    return [{
+        "id": a.id,
+        "username": a.username,
+        "is_live": a.is_live,
+        "total_karma": a.total_karma,
+        "icon_img": a.icon_img,
+        "last_checked": a.last_checked
+    } for a in accounts]
 
 @router.delete("/accounts/{username}")
 def delete_account(username: str, db: Session = Depends(get_db)):

@@ -16,6 +16,24 @@ export default function TrackedAccounts() {
       .then(data => {
         setAccounts(data);
         setLoading(false);
+        // Fire all detail refreshes in parallel in the background
+        // This updates karma/icon/live status without blocking the page render
+        Promise.all(
+          data.map(acc =>
+            fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/accounts/${acc.username}`)
+              .then(r => r.ok ? r.json() : null)
+              .then(detail => {
+                if (detail) {
+                  setAccounts(prev => prev.map(a =>
+                    a.username === acc.username
+                      ? { ...a, total_karma: detail.total_karma, icon_img: detail.icon_img, is_live: detail.is_live, reddit_data: detail.reddit_data }
+                      : a
+                  ));
+                }
+              })
+              .catch(() => null)
+          )
+        );
       })
       .catch(err => {
         console.error("Failed to fetch accounts:", err);
@@ -147,8 +165,8 @@ export default function TrackedAccounts() {
               >
                 <div className="flex items-center gap-4">
                   <div className="relative">
-                    {account.reddit_data?.icon_img ? (
-                      <img src={account.reddit_data.icon_img.split('?')[0]} className="w-10 h-10 rounded-full border border-white/10 object-cover" alt="Avatar" />
+                    {account.icon_img ? (
+                      <img src={account.icon_img.split('?')[0]} className="w-10 h-10 rounded-full border border-white/10 object-cover" alt="Avatar" />
                     ) : (
                       <div className="w-10 h-10 rounded-full border border-white/10 bg-surface flex items-center justify-center text-primary font-bold">
                         {account.username.charAt(0).toUpperCase()}
@@ -159,7 +177,10 @@ export default function TrackedAccounts() {
                   <div>
                     <span className="font-body-md text-body-md text-on-surface block truncate">u/{account.username}</span>
                     <span className="text-label-sm text-on-surface-variant/50">
-                      {account.reddit_data?.total_karma !== undefined ? `${account.reddit_data.total_karma.toLocaleString()} Karma` : 'Karma Loading...'}
+                      {account.total_karma !== null && account.total_karma !== undefined
+                        ? `${account.total_karma.toLocaleString()} Karma`
+                        : <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-on-surface-variant/30 animate-pulse inline-block" />Loading...</span>
+                      }
                     </span>
                   </div>
                 </div>
