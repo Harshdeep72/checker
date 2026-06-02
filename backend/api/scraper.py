@@ -9,8 +9,8 @@ load_dotenv()
 # Mock proxy list for development.
 PROXY_LIST = []
 
-# Placeholder for Reddit Session Cookie. The user should provide this in environment variables.
-REDDIT_SESSION_COOKIE = os.getenv("REDDIT_SESSION_COOKIE", "")
+# Support both REDDIT_SESSION_COOKIE and REDDIT_COOKIE env var names
+REDDIT_SESSION_COOKIE = os.getenv("REDDIT_SESSION_COOKIE") or os.getenv("REDDIT_COOKIE", "")
 
 def get_random_proxy():
     if not PROXY_LIST:
@@ -55,9 +55,11 @@ def check_reddit_url(url: str):
              return {"status": "unknown", "code": status_code, "message": f"Unknown Status: {status_code}"}
 
     except requests.errors.RequestsError as e:
+        print("Proxy Connection Error:", str(e))
         raise HTTPException(status_code=503, detail=f"Proxy Connection Error: {str(e)}")
     except Exception as e:
-         raise HTTPException(status_code=500, detail=f"Internal Error: {str(e)}")
+        print("Internal Error in check_reddit_url:", str(e))
+        raise HTTPException(status_code=500, detail=f"Internal Error: {str(e)}")
 
 def check_reddit_user(username: str):
     """
@@ -78,7 +80,12 @@ def check_reddit_user(username: str):
         status_code = response.status_code
         
         if status_code == 200:
-            data = response.json()
+            try:
+                data = response.json()
+            except Exception:
+                # If Reddit returned HTML instead of JSON on a 200 OK (e.g., cloudflare block)
+                return {"status": "blocked", "is_live": False, "raw_data": None}
+
             if "error" in data:
                  return {"status": "banned", "is_live": False, "raw_data": data}
                  
@@ -91,7 +98,11 @@ def check_reddit_user(username: str):
             try:
                 posts_resp = requests.get(posts_url, impersonate="chrome110", proxies=proxies, timeout=10, headers=headers)
                 if posts_resp.status_code == 200:
-                    for child in posts_resp.json().get("data", {}).get("children", []):
+                    try:
+                        posts_data = posts_resp.json()
+                    except Exception:
+                        posts_data = {}
+                    for child in posts_data.get("data", {}).get("children", []):
                         d = child.get("data", {})
                         recent_posts.append({
                             "id": d.get("id"),
@@ -107,7 +118,11 @@ def check_reddit_user(username: str):
             try:
                 comments_resp = requests.get(comments_url, impersonate="chrome110", proxies=proxies, timeout=10, headers=headers)
                 if comments_resp.status_code == 200:
-                    for child in comments_resp.json().get("data", {}).get("children", []):
+                    try:
+                        comments_data = comments_resp.json()
+                    except Exception:
+                        comments_data = {}
+                    for child in comments_data.get("data", {}).get("children", []):
                         d = child.get("data", {})
                         recent_comments.append({
                             "id": d.get("id"),
@@ -131,9 +146,13 @@ def check_reddit_user(username: str):
             return {"status": "unknown", "is_live": False, "raw_data": None}
 
     except requests.errors.RequestsError as e:
+        print("Proxy Connection Error:", str(e))
         raise HTTPException(status_code=503, detail=f"Proxy Connection Error: {str(e)}")
     except Exception as e:
-         raise HTTPException(status_code=500, detail=f"Internal Error: {str(e)}")
+        print("Internal Error in check_reddit_user:", str(e))
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal Error: {str(e)}")
 
 def get_post_details(url: str):
     """
