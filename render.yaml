@@ -1,0 +1,78 @@
+databases:
+  - name: redditchecker-db
+    databaseName: redditchecker
+    user: admin
+    plan: starter
+
+  - name: redditchecker-redis
+    type: redis
+    plan: free # or starter if free is unavailable
+    ipAllowList: []
+
+services:
+  # Web Service (FastAPI)
+  - type: web
+    name: redditchecker-backend
+    env: python
+    region: oregon
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: redditchecker-db
+          property: connectionString
+      - key: REDIS_URL
+        fromDatabase:
+          name: redditchecker-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromDatabase:
+          name: redditchecker-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromDatabase:
+          name: redditchecker-redis
+          property: connectionString
+    rootDir: backend
+
+  # Background Worker (Celery)
+  - type: worker
+    name: redditchecker-celery
+    env: python
+    region: oregon
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "celery -A celery_config.app worker --loglevel=info"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: redditchecker-db
+          property: connectionString
+      - key: REDIS_URL
+        fromDatabase:
+          name: redditchecker-redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromDatabase:
+          name: redditchecker-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromDatabase:
+          name: redditchecker-redis
+          property: connectionString
+    rootDir: backend
+
+  # Static Site (Vite)
+  - type: web
+    name: redditchecker-frontend
+    env: static
+    region: oregon
+    buildCommand: "npm install && npm run build"
+    publishPath: "dist"
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: redditchecker-backend
+          envVarKey: RENDER_EXTERNAL_URL
+    rootDir: frontend

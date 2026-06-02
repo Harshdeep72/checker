@@ -4,7 +4,7 @@ from sqlalchemy import func
 from typing import List
 
 from database import models, database
-from . import scraper
+from scraper import scraper
 
 router = APIRouter()
 
@@ -217,9 +217,11 @@ def track_new_comment(req: TrackRequest, db: Session = Depends(get_db)):
     return {"message": "Tracked successfully", "status": result, "comment": {"id": comment.id, "url": comment.url, "is_live": comment.is_live, "ups": comment.ups, "subreddit": comment.subreddit}}
 
 @router.get("/accounts")
-def get_all_accounts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    accounts = db.query(models.Account).order_by(models.Account.id.desc()).offset(skip).limit(limit).all()
-    return [{
+def get_all_accounts(page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
+    skip = (page - 1) * per_page
+    total = db.query(func.count(models.Account.id)).scalar()
+    accounts = db.query(models.Account).order_by(models.Account.id.desc()).offset(skip).limit(per_page).all()
+    items = [{
         "id": a.id,
         "username": a.username,
         "is_live": a.is_live,
@@ -228,6 +230,13 @@ def get_all_accounts(skip: int = 0, limit: int = 100, db: Session = Depends(get_
         "auto_track": a.auto_track,
         "last_checked": a.last_checked
     } for a in accounts]
+    
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "pages": (total + per_page - 1) // per_page
+    }
 
 @router.delete("/accounts/{username}")
 def delete_account(username: str, db: Session = Depends(get_db)):
@@ -270,14 +279,25 @@ def get_external_post_details(url: str):
     return scraper.get_post_details(url)
 
 @router.get("/tracked/posts")
-def get_tracked_posts(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    posts = db.query(models.Post).order_by(models.Post.id.desc()).offset(skip).limit(limit).all()
-    return [{"id": p.id, "url": p.url, "is_live": p.is_live, "ups": p.ups, "subreddit": p.subreddit, "account": p.account.username if p.account else None} for p in posts]
+def get_tracked_posts(page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
+    skip = (page - 1) * per_page
+    total = db.query(func.count(models.Post.id)).scalar()
+    posts = db.query(models.Post).order_by(models.Post.id.desc()).offset(skip).limit(per_page).all()
+    items = [{"id": p.id, "url": p.url, "is_live": p.is_live, "ups": p.ups, "subreddit": p.subreddit, "account": p.account.username if p.account else None} for p in posts]
+    
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "pages": (total + per_page - 1) // per_page
+    }
 
 @router.get("/tracked/comments")
-def get_tracked_comments(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    comments = db.query(models.Comment).order_by(models.Comment.id.desc()).offset(skip).limit(limit).all()
-    return [{
+def get_tracked_comments(page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)):
+    skip = (page - 1) * per_page
+    total = db.query(func.count(models.Comment.id)).scalar()
+    comments = db.query(models.Comment).order_by(models.Comment.id.desc()).offset(skip).limit(per_page).all()
+    items = [{
         "id": c.id,
         "url": c.url,
         "body": c.body,
@@ -286,49 +306,28 @@ def get_tracked_comments(skip: int = 0, limit: int = 100, db: Session = Depends(
         "subreddit": c.subreddit,
         "account": c.account.username if c.account else None
     } for c in comments]
+    
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "pages": (total + per_page - 1) // per_page
+    }
+from tasks.data_layer import sync_post_task, sync_comment_task
+
 @router.post("/tracked/posts/sync")
 def sync_tracked_posts(db: Session = Depends(get_db)):
     posts = db.query(models.Post).all()
     for post in posts:
-        result = scraper.check_reddit_url(post.url)
-        post.is_live = (result["code"] == 200)
-        details = scraper.get_post_details(post.url)
-        if details.get("status") == "success":
-            post.ups = details.get("ups", 0)
-            post.subreddit = details.get("subreddit") or post.subreddit
-            if details.get("author"):
-                account = db.query(models.Account).filter(models.Account.username == details.get("author")).first()
-                if not account:
-                    account = models.Account(username=details.get("author"), is_live=True)
-                    db.add(account)
-                    db.commit()
-                    db.refresh(account)
-                post.account_id = account.id
-        post.last_checked = func.now()
-    db.commit()
-    return {"message": f"Synced {len(posts)} posts"}
+        sync_post_task.apply_async(args=[post.id], queue="high")
+    return {"message": f"Enqueued {len(posts)} posts for syncing", "status": "processing"}
 
 @router.post("/tracked/comments/sync")
 def sync_tracked_comments(db: Session = Depends(get_db)):
     comments = db.query(models.Comment).all()
     for comment in comments:
-        result = scraper.check_reddit_url(comment.url)
-        comment.is_live = (result["code"] == 200)
-        details = scraper.get_post_details(comment.url)
-        if details.get("status") == "success":
-            comment.ups = details.get("ups", 0)
-            comment.subreddit = details.get("subreddit") or comment.subreddit
-            if details.get("author"):
-                account = db.query(models.Account).filter(models.Account.username == details.get("author")).first()
-                if not account:
-                    account = models.Account(username=details.get("author"), is_live=True)
-                    db.add(account)
-                    db.commit()
-                    db.refresh(account)
-                comment.account_id = account.id
-        comment.last_checked = func.now()
-    db.commit()
-    return {"message": f"Synced {len(comments)} comments"}
+        sync_comment_task.apply_async(args=[comment.id], queue="high")
+    return {"message": f"Enqueued {len(comments)} comments for syncing", "status": "processing"}
 
 @router.post("/tracked/posts/bulk")
 def bulk_track_posts(req: BulkTrackRequest, db: Session = Depends(get_db)):
@@ -369,4 +368,24 @@ def bulk_track_accounts(req: BulkAccountRequest, db: Session = Depends(get_db)):
             results["failed"] += 1
             results["errors"].append(f"{username}: {str(e)}")
     return results
+
+from celery_config import app as celery_app
+
+@router.get("/queue/status")
+def get_queue_status():
+    try:
+        i = celery_app.control.inspect()
+        active = i.active() or {}
+        reserved = i.reserved() or {}
+        
+        total_active = sum(len(tasks) for tasks in active.values())
+        total_queued = sum(len(tasks) for tasks in reserved.values())
+        
+        return {
+            "active": total_active,
+            "queued": total_queued,
+            "status": "processing" if total_active > 0 or total_queued > 0 else "idle"
+        }
+    except Exception as e:
+        return {"error": str(e), "status": "unknown"}
 
