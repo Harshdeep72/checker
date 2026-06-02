@@ -6,6 +6,9 @@ export default function TrackedAccounts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expandedRow, setExpandedRow] = useState(null);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkUsernames, setBulkUsernames] = useState('');
+  const [isSubmittingBulk, setIsSubmittingBulk] = useState(false);
 
   const fetchAccounts = () => {
     fetch((import.meta.env.VITE_API_URL || "http://localhost:8000") + '/api/accounts', { cache: 'no-store' })
@@ -60,6 +63,40 @@ export default function TrackedAccounts() {
     }
   };
 
+  const submitBulkAccounts = async (e) => {
+    e.preventDefault();
+    if (!bulkUsernames) return;
+    
+    const usernames = bulkUsernames
+      .split(/[\n,\s]+/)
+      .map(u => u.trim())
+      .filter(u => u.length > 0);
+      
+    if (usernames.length === 0) return;
+    setIsSubmittingBulk(true);
+    
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/accounts/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ usernames })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to bulk track accounts");
+      
+      if (data.failed > 0) {
+        alert(`Successfully added ${data.added} accounts. Failed ${data.failed} accounts:\n\n${data.errors.join('\\n')}`);
+      }
+      setIsBulkModalOpen(false);
+      setBulkUsernames('');
+      fetchAccounts();
+    } catch(err) {
+      alert(err.message);
+    } finally {
+      setIsSubmittingBulk(false);
+    }
+  };
+
   if (loading) return <div className="p-12 text-on-surface">Loading accounts...</div>;
   if (error) return <div className="p-12 text-error">{error}</div>;
 
@@ -76,10 +113,16 @@ export default function TrackedAccounts() {
           <h1 className="font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-surface">Tracked Accounts</h1>
           <p className="text-on-surface-variant mt-2 max-w-xl">Manage your high-priority Reddit monitoring targets. Real-time scanning is active.</p>
         </div>
-        <Link to="/accounts" className="flex items-center justify-center gap-2 bg-linear-to-r from-primary to-primary-container text-white px-6 py-3 rounded-xl font-label-md text-label-md hover:shadow-[0_0_20px_rgba(77,142,255,0.4)] transition-all active:scale-95">
-          <span className="material-symbols-outlined">person_add</span>
-          Track New Account
-        </Link>
+        <div className="flex gap-3">
+          <button onClick={() => setIsBulkModalOpen(true)} className="flex items-center justify-center gap-2 bg-surface-container border border-white/10 text-on-surface px-6 py-3 rounded-xl font-label-md text-label-md hover:bg-white/5 transition-all active:scale-95 cursor-pointer">
+            <span className="material-symbols-outlined">group_add</span>
+            Bulk Track
+          </button>
+          <Link to="/accounts" className="flex items-center justify-center gap-2 bg-linear-to-r from-primary to-primary-container text-white px-6 py-3 rounded-xl font-label-md text-label-md hover:shadow-[0_0_20px_rgba(77,142,255,0.4)] transition-all active:scale-95">
+            <span className="material-symbols-outlined">person_add</span>
+            Lookup Account
+          </Link>
+        </div>
       </div>
 
       {/* Directory Table Container */}
@@ -209,6 +252,50 @@ export default function TrackedAccounts() {
           <span className="text-label-sm text-on-surface-variant/40 uppercase tracking-widest">Showing {accounts.length} accounts</span>
         </div>
       </div>
+
+      {/* Bulk Track Accounts Modal */}
+      {isBulkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="glass-card w-full max-w-md p-6 rounded-2xl border border-white/10 shadow-[0_0_40px_rgba(0,0,0,0.5)]">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-headline-md text-headline-md text-on-surface">Bulk Track Accounts</h3>
+              <button onClick={() => setIsBulkModalOpen(false)} className="text-on-surface-variant hover:text-on-surface transition-colors cursor-pointer">
+                <span className="material-symbols-outlined">close</span>
+              </button>
+            </div>
+            <form onSubmit={submitBulkAccounts}>
+              <div className="mb-6">
+                <label className="block text-label-sm font-label-sm text-on-surface-variant mb-2">Reddit Usernames (one per line or comma-separated)</label>
+                <textarea 
+                  required
+                  rows="4"
+                  placeholder="username1&#10;username2" 
+                  className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-y"
+                  value={bulkUsernames}
+                  onChange={(e) => setBulkUsernames(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <button 
+                  type="button" 
+                  onClick={() => setIsBulkModalOpen(false)}
+                  className="px-5 py-2.5 rounded-lg text-label-md font-label-md text-on-surface-variant hover:bg-white/5 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={isSubmittingBulk}
+                  className="px-5 py-2.5 rounded-lg text-label-md font-label-md bg-primary text-on-primary hover:neon-glow-blue transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+                >
+                  {isSubmittingBulk && <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>}
+                  {isSubmittingBulk ? 'Tracking...' : 'Start Tracking'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }

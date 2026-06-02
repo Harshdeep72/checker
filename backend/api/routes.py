@@ -96,6 +96,12 @@ from pydantic import BaseModel
 class TrackRequest(BaseModel):
     url: str
 
+class BulkTrackRequest(BaseModel):
+    urls: List[str]
+
+class BulkAccountRequest(BaseModel):
+    usernames: List[str]
+
 @router.post("/tracked/posts")
 def track_new_post(req: TrackRequest, db: Session = Depends(get_db)):
     result = scraper.check_reddit_url(req.url)
@@ -244,3 +250,44 @@ def sync_tracked_comments(db: Session = Depends(get_db)):
         comment.last_checked = func.now()
     db.commit()
     return {"message": f"Synced {len(comments)} comments"}
+
+@router.post("/tracked/posts/bulk")
+def bulk_track_posts(req: BulkTrackRequest, db: Session = Depends(get_db)):
+    results = {"added": 0, "failed": 0, "errors": []}
+    for url in req.urls:
+        if not url.strip(): continue
+        try:
+            track_new_post(TrackRequest(url=url.strip()), db)
+            results["added"] += 1
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append(f"{url}: {str(e)}")
+    return results
+
+@router.post("/tracked/comments/bulk")
+def bulk_track_comments(req: BulkTrackRequest, db: Session = Depends(get_db)):
+    results = {"added": 0, "failed": 0, "errors": []}
+    for url in req.urls:
+        if not url.strip(): continue
+        try:
+            track_new_comment(TrackRequest(url=url.strip()), db)
+            results["added"] += 1
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append(f"{url}: {str(e)}")
+    return results
+
+@router.post("/accounts/bulk")
+def bulk_track_accounts(req: BulkAccountRequest, db: Session = Depends(get_db)):
+    results = {"added": 0, "failed": 0, "errors": []}
+    for username in req.usernames:
+        clean_username = username.strip().replace("u/", "")
+        if not clean_username: continue
+        try:
+            get_account_details(clean_username, db)
+            results["added"] += 1
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append(f"{username}: {str(e)}")
+    return results
+

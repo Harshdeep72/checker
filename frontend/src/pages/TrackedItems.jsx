@@ -105,18 +105,30 @@ export default function TrackedItems({ type }) {
   const submitTrackUrl = async (e) => {
     e.preventDefault();
     if (!trackUrl) return;
+    
+    const urls = trackUrl
+      .split(/[\n,\s]+/)
+      .map(u => u.trim())
+      .filter(u => u.length > 0);
+      
+    if (urls.length === 0) return;
+
     setIsTracking(true);
     
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/tracked/${isPosts ? 'posts' : 'comments'}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/tracked/${isPosts ? 'posts' : 'comments'}/bulk`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ url: trackUrl })
+        body: JSON.stringify({ urls: urls })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || `Failed to track ${isPosts ? 'post' : 'comment'}`);
+      if (!res.ok) throw new Error(data.detail || `Failed to track ${isPosts ? 'posts' : 'comments'}`);
+      
+      if (data.failed > 0) {
+        alert(`Successfully added ${data.added} items. Failed ${data.failed} items:\n\n${data.errors.join('\\n')}`);
+      }
       
       setIsModalOpen(false);
       setTrackUrl('');
@@ -330,12 +342,12 @@ export default function TrackedItems({ type }) {
             </div>
             <form onSubmit={submitTrackUrl}>
               <div className="mb-6">
-                <label className="block text-label-sm font-label-sm text-on-surface-variant mb-2">Reddit URL</label>
-                <input 
-                  type="url" 
+                <label className="block text-label-sm font-label-sm text-on-surface-variant mb-2">Reddit URLs (one per line or comma-separated)</label>
+                <textarea 
                   required
-                  placeholder="https://www.reddit.com/r/..." 
-                  className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all"
+                  rows="4"
+                  placeholder="https://www.reddit.com/r/...&#10;https://www.reddit.com/r/..." 
+                  className="w-full bg-black/30 border border-white/10 rounded-xl px-4 py-3 text-on-surface focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all resize-y"
                   value={trackUrl}
                   onChange={(e) => setTrackUrl(e.target.value)}
                 />
