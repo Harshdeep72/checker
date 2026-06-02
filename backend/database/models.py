@@ -12,6 +12,7 @@ class Account(Base):
     is_live = Column(Boolean, default=True)
     total_karma = Column(Integer, nullable=True)
     icon_img = Column(String, nullable=True)
+    auto_track = Column(Boolean, default=False)
     last_checked = Column(DateTime, default=datetime.datetime.utcnow)
 
     posts = relationship("Post", back_populates="account")

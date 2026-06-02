@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 
 export default function TrackedAccounts() {
@@ -9,42 +9,65 @@ export default function TrackedAccounts() {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [bulkUsernames, setBulkUsernames] = useState('');
   const [isSubmittingBulk, setIsSubmittingBulk] = useState(false);
+  const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(300);
+  const refreshIntervalRef = useRef(null);
+  const countdownRef = useRef(null);
+  const REFRESH_INTERVAL = 300; // 5 minutes
 
-  const fetchAccounts = () => {
+  const runBackgroundRefresh = useCallback((data) => {
+    Promise.all(
+      data.map(acc =>
+        fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/accounts/${acc.username}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(detail => {
+            if (detail) {
+              setAccounts(prev => prev.map(a =>
+                a.username === acc.username
+                  ? { ...a, total_karma: detail.total_karma, icon_img: detail.icon_img, is_live: detail.is_live, auto_track: detail.auto_track, reddit_data: detail.reddit_data }
+                  : a
+              ));
+            }
+          })
+          .catch(() => null)
+      )
+    );
+  }, []);
+
+  const fetchAccounts = useCallback(() => {
     fetch((import.meta.env.VITE_API_URL || "http://localhost:8000") + '/api/accounts', { cache: 'no-store' })
       .then((res) => res.json())
       .then(data => {
         setAccounts(data);
         setLoading(false);
-        // Fire all detail refreshes in parallel in the background
-        // This updates karma/icon/live status without blocking the page render
-        Promise.all(
-          data.map(acc =>
-            fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/accounts/${acc.username}`)
-              .then(r => r.ok ? r.json() : null)
-              .then(detail => {
-                if (detail) {
-                  setAccounts(prev => prev.map(a =>
-                    a.username === acc.username
-                      ? { ...a, total_karma: detail.total_karma, icon_img: detail.icon_img, is_live: detail.is_live, reddit_data: detail.reddit_data }
-                      : a
-                  ));
-                }
-              })
-              .catch(() => null)
-          )
-        );
+        setSecondsUntilRefresh(REFRESH_INTERVAL);
+        runBackgroundRefresh(data);
       })
       .catch(err => {
         console.error("Failed to fetch accounts:", err);
         setError("Failed to connect to API");
         setLoading(false);
       });
-  };
+  }, [runBackgroundRefresh]);
 
   useEffect(() => {
     fetchAccounts();
-  }, []);
+
+    // Auto-refresh every 5 minutes
+    refreshIntervalRef.current = setInterval(() => {
+      fetchAccounts();
+    }, REFRESH_INTERVAL * 1000);
+
+    // Countdown ticker
+    countdownRef.current = setInterval(() => {
+      setSecondsUntilRefresh(s => (s <= 1 ? REFRESH_INTERVAL : s - 1));
+    }, 1000);
+
+    return () => {
+      clearInterval(refreshIntervalRef.current);
+      clearInterval(countdownRef.current);
+    };
+  }, [fetchAccounts]);
+
 
   const handleDelete = async (username) => {
     if (window.confirm(`Stop tracking u/${username} and remove from database?`)) {
@@ -63,7 +86,6 @@ export default function TrackedAccounts() {
       setExpandedRow(null);
     } else {
       setExpandedRow(username);
-      // Fetch live details if we haven't already fetched it
       const account = accounts.find(a => a.username === username);
       if (!account.reddit_data) {
         try {
@@ -71,7 +93,7 @@ export default function TrackedAccounts() {
           if (res.ok) {
             const data = await res.json();
             setAccounts(prev => prev.map(a => 
-              a.username === username ? { ...a, reddit_data: data.reddit_data } : a
+              a.username === username ? { ...a, reddit_data: data.reddit_data, posts: data.posts, comments: data.comments } : a
             ));
           }
         } catch (err) {
@@ -80,6 +102,41 @@ export default function TrackedAccounts() {
       }
     }
   };
+
+  const toggleAutoTrack = async (username) => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/accounts/${username}/auto_track`, { method: 'PATCH' });
+      if (res.ok) {
+        const data = await res.json();
+        setAccounts(prev => prev.map(a => a.username === username ? { ...a, auto_track: data.auto_track } : a));
+      }
+    } catch (err) {
+      console.error("Failed to toggle auto_track:", err);
+    }
+  };
+
+  const quickTrackItem = async (url, type, username) => {
+    try {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/tracked/${type}/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: [url] })
+      });
+      if (res.ok) {
+        // Update local tracked list so badge disappears
+        setAccounts(prev => prev.map(a => {
+          if (a.username !== username) return a;
+          const key = type === 'posts' ? 'posts' : 'comments';
+          return { ...a, [key]: [...(a[key] || []), { url, is_live: true }] };
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to quick-track:", err);
+    }
+  };
+
+  const formatCountdown = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
 
   const submitBulkAccounts = async (e) => {
     e.preventDefault();
@@ -196,9 +253,22 @@ export default function TrackedAccounts() {
                   <span className="text-label-md truncate">{new Date(account.last_checked).toLocaleDateString()}</span>
                 </div>
 
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end gap-2" onClick={e => e.stopPropagation()}>
+                  {/* Auto-track toggle */}
+                  <button
+                    onClick={() => toggleAutoTrack(account.username)}
+                    title={account.auto_track ? 'Auto-track ON: new posts/comments tracked automatically' : 'Auto-track OFF: click to enable'}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-label-sm font-label-sm border transition-all ${
+                      account.auto_track
+                        ? 'bg-primary/15 text-primary border-primary/30 hover:bg-primary/25'
+                        : 'bg-white/5 text-on-surface-variant/50 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[16px]">{account.auto_track ? 'bolt' : 'bolt'}</span>
+                    <span className="hidden md:inline">{account.auto_track ? 'Auto' : 'Auto'}</span>
+                  </button>
                   <button 
-                    onClick={(e) => { e.stopPropagation(); handleDelete(account.username); }}
+                    onClick={() => handleDelete(account.username)}
                     className="material-symbols-outlined p-2 rounded-lg text-on-surface-variant/60 hover:text-error hover:bg-error/10 transition-colors"
                   >
                     delete
@@ -228,12 +298,28 @@ export default function TrackedAccounts() {
                             No posts found.
                           </div>
                         ) : (
-                          account.reddit_data.recent_posts.map((post, idx) => (
-                            <a href={post.url} target="_blank" rel="noreferrer" key={idx} className="block p-3 rounded-lg bg-white/5 border border-white/5 hover:border-primary/30 transition-colors">
-                              <p className="text-body-md text-on-surface line-clamp-1">{post.title}</p>
-                              <span className="text-label-sm text-on-surface-variant/40">{post.ups} upvotes</span>
-                            </a>
-                          ))
+                          account.reddit_data.recent_posts.map((post, idx) => {
+                            const isTracked = (account.posts || []).some(p => p.url === post.url);
+                            return (
+                              <div key={idx} className={`p-3 rounded-lg border transition-colors ${isTracked ? 'bg-white/5 border-white/5' : 'bg-primary/5 border-primary/20'}`}>
+                                <div className="flex items-start justify-between gap-2">
+                                  <a href={post.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0">
+                                    <p className="text-body-md text-on-surface line-clamp-1 hover:text-primary transition-colors">{post.title}</p>
+                                    <span className="text-label-sm text-on-surface-variant/40">{post.ups} upvotes</span>
+                                  </a>
+                                  {!isTracked && (
+                                    <button
+                                      onClick={() => quickTrackItem(post.url, 'posts', account.username)}
+                                      className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-on-primary text-label-sm font-label-sm hover:bg-primary/80 transition-colors animate-pulse-subtle"
+                                    >
+                                      <span className="material-symbols-outlined text-[14px]">add</span>
+                                      NEW
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -252,12 +338,28 @@ export default function TrackedAccounts() {
                             No comments found.
                           </div>
                         ) : (
-                          account.reddit_data.recent_comments.map((comment, idx) => (
-                            <a href={comment.url} target="_blank" rel="noreferrer" key={idx} className="block p-3 rounded-lg bg-white/5 border border-white/5 hover:border-secondary/30 transition-colors">
-                              <p className="text-label-md text-on-surface italic line-clamp-2">"{comment.body}"</p>
-                              <span className="text-label-sm text-on-surface-variant/40">{comment.ups} upvotes</span>
-                            </a>
-                          ))
+                          account.reddit_data.recent_comments.map((comment, idx) => {
+                            const isTracked = (account.comments || []).some(c => c.url === comment.url);
+                            return (
+                              <div key={idx} className={`p-3 rounded-lg border transition-colors ${isTracked ? 'bg-white/5 border-white/5' : 'bg-secondary/5 border-secondary/20'}`}>
+                                <div className="flex items-start justify-between gap-2">
+                                  <a href={comment.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0">
+                                    <p className="text-label-md text-on-surface italic line-clamp-2 hover:text-secondary transition-colors">"{comment.body}"</p>
+                                    <span className="text-label-sm text-on-surface-variant/40">{comment.ups} upvotes</span>
+                                  </a>
+                                  {!isTracked && (
+                                    <button
+                                      onClick={() => quickTrackItem(comment.url, 'comments', account.username)}
+                                      className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-secondary text-on-secondary text-label-sm font-label-sm hover:bg-secondary/80 transition-colors animate-pulse-subtle"
+                                    >
+                                      <span className="material-symbols-outlined text-[14px]">add</span>
+                                      NEW
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -271,6 +373,11 @@ export default function TrackedAccounts() {
         {/* Table Footer */}
         <div className="px-8 py-4 bg-white/5 flex items-center justify-between">
           <span className="text-label-sm text-on-surface-variant/40 uppercase tracking-widest">Showing {accounts.length} accounts</span>
+          <div className="flex items-center gap-2 text-label-sm text-on-surface-variant/40">
+            <span className="material-symbols-outlined text-[14px] animate-spin" style={{animationDuration: '3s'}}>refresh</span>
+            <span>Refreshing in <span className="text-primary font-mono">{formatCountdown(secondsUntilRefresh)}</span></span>
+            <button onClick={fetchAccounts} className="ml-2 text-primary hover:text-primary/70 text-label-sm underline">Refresh now</button>
+          </div>
         </div>
       </div>
 
