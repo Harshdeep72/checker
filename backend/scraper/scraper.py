@@ -94,6 +94,7 @@ def do_fetch(url, etag=None):
 
 def check_reddit_url(url: str, etag: str = None):
     """Stealth checks a Reddit post/comment URL."""
+    url = url.replace("www.reddit.com", "old.reddit.com")
     try:
         response, _ = do_fetch(url, etag)
         status_code = response.status_code
@@ -122,9 +123,9 @@ def check_reddit_user(username: str, etag: str = None):
     """
     Fetches user details, posts, and comments from Reddit's JSON endpoints.
     """
-    about_url = f"https://www.reddit.com/user/{username}/about.json"
-    posts_url = f"https://www.reddit.com/user/{username}/submitted.json?limit=10"
-    comments_url = f"https://www.reddit.com/user/{username}/comments.json?limit=10"
+    about_url = f"https://old.reddit.com/user/{username}/about.json"
+    posts_url = f"https://old.reddit.com/user/{username}/submitted.json?limit=10"
+    comments_url = f"https://old.reddit.com/user/{username}/comments.json?limit=10"
 
     try:
         # 1. Fetch About (Profile Data)
@@ -209,6 +210,7 @@ def get_post_details(url: str, etag: str = None):
     Fetches the full JSON details of a Reddit post or comment.
     """
     base_url = url.split('?')[0].rstrip('/')
+    base_url = base_url.replace("www.reddit.com", "old.reddit.com")
     json_url = f"{base_url}.json"
     
     try:
