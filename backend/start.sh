@@ -1,4 +1,5 @@
 #!/bin/bash
+export PYTHONPATH=.
 # Start celery worker in the background
 celery -A celery_config.app worker --loglevel=info &
 # Start uvicorn

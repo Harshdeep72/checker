@@ -7,7 +7,7 @@ load_dotenv()
 
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
-app = Celery("redditchecker", broker=redis_url, backend=redis_url)
+app = Celery("redditchecker", broker=redis_url, backend=redis_url, include=['tasks.data_layer'])
 
 app.conf.update(
     task_serializer="json",
@@ -31,4 +31,3 @@ app.conf.update(
     }
 )
 
-app.autodiscover_tasks(['tasks'])
