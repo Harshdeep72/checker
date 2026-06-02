@@ -2,18 +2,20 @@ databases:
   - name: redditchecker-db
     databaseName: redditchecker
     user: admin
-    plan: starter
-
-  - name: redditchecker-redis
-    type: redis
-    plan: free # or starter if free is unavailable
-    ipAllowList: []
+    plan: free
 
 services:
+  # Redis
+  - type: redis
+    name: redditchecker-redis
+    plan: free
+    ipAllowList: []
+
   # Web Service (FastAPI)
   - type: web
     name: redditchecker-backend
     env: python
+    plan: free
     region: oregon
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
@@ -23,16 +25,19 @@ services:
           name: redditchecker-db
           property: connectionString
       - key: REDIS_URL
-        fromDatabase:
+        fromService:
           name: redditchecker-redis
+          type: redis
           property: connectionString
       - key: CELERY_BROKER_URL
-        fromDatabase:
+        fromService:
           name: redditchecker-redis
+          type: redis
           property: connectionString
       - key: CELERY_RESULT_BACKEND
-        fromDatabase:
+        fromService:
           name: redditchecker-redis
+          type: redis
           property: connectionString
     rootDir: backend
 
@@ -40,6 +45,7 @@ services:
   - type: worker
     name: redditchecker-celery
     env: python
+    plan: free
     region: oregon
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A celery_config.app worker --loglevel=info"
@@ -49,16 +55,19 @@ services:
           name: redditchecker-db
           property: connectionString
       - key: REDIS_URL
-        fromDatabase:
+        fromService:
           name: redditchecker-redis
+          type: redis
           property: connectionString
       - key: CELERY_BROKER_URL
-        fromDatabase:
+        fromService:
           name: redditchecker-redis
+          type: redis
           property: connectionString
       - key: CELERY_RESULT_BACKEND
-        fromDatabase:
+        fromService:
           name: redditchecker-redis
+          type: redis
           property: connectionString
     rootDir: backend
 
@@ -66,9 +75,8 @@ services:
   - type: web
     name: redditchecker-frontend
     env: static
-    region: oregon
     buildCommand: "npm install && npm run build"
-    publishPath: "dist"
+    staticPublishPath: "dist"
     envVars:
       - key: VITE_API_URL
         fromService:
