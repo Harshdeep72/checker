@@ -36,6 +36,7 @@ class Comment(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     url = Column(String, unique=True, index=True)
+    body = Column(String, nullable=True)
     is_live = Column(Boolean, default=True)
     ups = Column(Integer, default=0)
     subreddit = Column(String, nullable=True)

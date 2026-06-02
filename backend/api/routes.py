@@ -118,7 +118,8 @@ def get_account_details(username: str, db: Session = Depends(get_db)):
                     new_comment = models.Comment(
                         url=url, is_live=True,
                         account_id=account.id,
-                        ups=comment.get("ups", 0)
+                        ups=comment.get("ups", 0),
+                        body=comment.get("body", "")[:500] if comment.get("body") else None
                     )
                     db.add(new_comment)
                     newly_added += 1
@@ -141,7 +142,7 @@ def get_account_details(username: str, db: Session = Depends(get_db)):
         "reddit_data": raw_data,
         "newly_added": newly_added,
         "posts": [{"id": p.id, "url": p.url, "is_live": p.is_live} for p in account.posts],
-        "comments": [{"id": c.id, "url": c.url, "is_live": c.is_live} for c in account.comments]
+        "comments": [{"id": c.id, "url": c.url, "is_live": c.is_live, "body": c.body} for c in account.comments]
     }
 
 from pydantic import BaseModel
@@ -276,7 +277,15 @@ def get_tracked_posts(skip: int = 0, limit: int = 100, db: Session = Depends(get
 @router.get("/tracked/comments")
 def get_tracked_comments(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
     comments = db.query(models.Comment).order_by(models.Comment.id.desc()).offset(skip).limit(limit).all()
-    return [{"id": c.id, "url": c.url, "is_live": c.is_live, "ups": c.ups, "subreddit": c.subreddit, "account": c.account.username if c.account else None} for c in comments]
+    return [{
+        "id": c.id,
+        "url": c.url,
+        "body": c.body,
+        "is_live": c.is_live,
+        "ups": c.ups,
+        "subreddit": c.subreddit,
+        "account": c.account.username if c.account else None
+    } for c in comments]
 @router.post("/tracked/posts/sync")
 def sync_tracked_posts(db: Session = Depends(get_db)):
     posts = db.query(models.Post).all()

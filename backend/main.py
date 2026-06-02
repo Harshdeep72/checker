@@ -18,6 +18,7 @@ def run_migrations():
         "ALTER TABLE posts ADD COLUMN IF NOT EXISTS subreddit VARCHAR",
         "ALTER TABLE comments ADD COLUMN IF NOT EXISTS ups INTEGER DEFAULT 0",
         "ALTER TABLE comments ADD COLUMN IF NOT EXISTS subreddit VARCHAR",
+        "ALTER TABLE comments ADD COLUMN IF NOT EXISTS body VARCHAR",
     ]
     with database.engine.connect() as conn:
         for sql in migrations:

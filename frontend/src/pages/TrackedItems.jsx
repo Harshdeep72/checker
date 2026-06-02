@@ -18,15 +18,19 @@ export default function TrackedItems({ type }) {
   const isPosts = type === 'posts';
   const apiEndpoint = isPosts ? (import.meta.env.VITE_API_URL || "http://localhost:8000") + '/api/tracked/posts' : (import.meta.env.VITE_API_URL || "http://localhost:8000") + '/api/tracked/comments';
   
-  const getDisplayName = (url, isPosts) => {
+  const getDisplayName = (item, isPosts) => {
+    // For comments, prefer stored body text over URL-parsed title
+    if (!isPosts && item.body) {
+      return `"${item.body.length > 80 ? item.body.slice(0, 80) + '…' : item.body}"`;
+    }
     try {
-      const urlObj = new URL(url);
+      const urlObj = new URL(item.url);
       const parts = urlObj.pathname.split('/').filter(Boolean);
       const titlePart = parts.length >= 5 ? parts[4] : '';
-      const formattedTitle = titlePart ? titlePart.replace(/_/g, ' ') : url;
+      const formattedTitle = titlePart ? titlePart.replace(/_/g, ' ') : item.url;
       return isPosts ? formattedTitle : `Comment on ${formattedTitle}`;
     } catch {
-      return url;
+      return item.url;
     }
   };
 
@@ -194,7 +198,7 @@ export default function TrackedItems({ type }) {
                     onClick={() => toggleRow(item.id, item.url)}
                   >
                     <td className="px-6 py-5 font-body-sm text-on-surface font-medium max-w-[300px]">
-                      {getDisplayName(item.url, isPosts)}
+                      {getDisplayName(item, isPosts)}
                     </td>
                     <td className="px-6 py-5">
                       <div className="flex flex-col gap-1">
