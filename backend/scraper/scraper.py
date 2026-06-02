@@ -38,7 +38,7 @@ def validate_response(response, item_type="unknown"):
             pass # Maybe not JSON, that's fine if it's the HTML stealth check
 
         # Response time check (under 50ms implies cache/block for .json endpoints)
-        if response.elapsed.total_seconds() < 0.05:
+        if response.elapsed < 0.05:
             raise ValueError("Response unusually fast (< 50ms)")
             
     return True
