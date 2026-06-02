@@ -10,7 +10,7 @@ router = APIRouter()
 
 # Dependency
 def get_db():
-    db = database.SessionLocal()
+    db = database.WriteSessionLocal()
     try:
         yield db
     finally:

@@ -5,7 +5,7 @@ import uuid
 import requests as sync_requests
 from celery import shared_task
 from sqlalchemy import func
-from database.database import SessionLocal
+from database.database import WriteSessionLocal
 from database import models
 from scraper import scraper
 import time
@@ -15,7 +15,7 @@ logger = structlog.get_logger()
 ALERT_WEBHOOK_URL = os.getenv("ALERT_WEBHOOK_URL", "")
 
 def get_db():
-    db = SessionLocal()
+    db = WriteSessionLocal()
     try:
         return db
     finally:
