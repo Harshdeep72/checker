@@ -47,7 +47,10 @@ export default function TrackedAccounts() {
   const rowVirtualizer = useVirtualizer({
     count: hasNextPage ? accounts.length + 1 : accounts.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => expandedRow ? 400 : 80,
+    estimateSize: (index) => {
+      if (index >= accounts.length) return 80;
+      return accounts[index]?.username === expandedRow ? 400 : 80;
+    },
     overscan: 10,
   });
 
@@ -296,8 +299,14 @@ export default function TrackedAccounts() {
                 }
 
                 return (
-                  <div key={account.id} className="group transition-all absolute top-0 left-0 w-full" style={{ height: `${virtualRow.size}px`, transform: `translateY(${virtualRow.start}px)` }}>
-                    <div className={`grid grid-cols-2 md:grid-cols-[1.5fr_1fr_1fr_0.5fr] gap-4 px-6 md:px-8 py-5 items-center cursor-pointer transition-all ${isExpanded ? 'bg-white/5' : 'hover:bg-white/5'}`} onClick={() => toggleRow(account.username)}>
+                  <div 
+                    key={account.id} 
+                    data-index={virtualRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    className="group transition-all absolute top-0 left-0 w-full" 
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <div className={`grid grid-cols-[auto_1fr_auto_auto] md:grid-cols-[1.5fr_1fr_1fr_auto] gap-4 px-6 md:px-8 py-5 items-center cursor-pointer transition-all ${isExpanded ? 'bg-white/5' : 'hover:bg-white/5'}`} onClick={() => toggleRow(account.username)}>
                       <div className="flex items-center gap-4 overflow-hidden">
                         <div className="relative shrink-0">
                           {account.icon_img ? (
@@ -309,9 +318,9 @@ export default function TrackedAccounts() {
                           )}
                           <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-surface-container ${account.is_live ? 'bg-tertiary shadow-[0_0_5px_#4edea3]' : 'bg-error'}`} />
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <span className="font-body-md text-body-md text-on-surface block truncate">u/{account.username}</span>
-                          <span className="text-label-sm text-on-surface-variant/50">
+                          <span className="text-label-sm text-on-surface-variant/50 block truncate max-w-full">
                             <LiveDelta current={account.total_karma} previous={account.previous_karma} /> Karma
                           </span>
                         </div>
@@ -328,7 +337,7 @@ export default function TrackedAccounts() {
                         <span className="text-label-md truncate">{new Date(account.last_synced_at || account.last_checked).toLocaleDateString()}</span>
                       </div>
 
-                      <div className="flex justify-end gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+                      <div className="flex justify-end items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
                         <button
                           onClick={() => toggleAutoTrackMutation.mutate(account.username)}
                           title={account.auto_track ? 'Auto-track ON' : 'Auto-track OFF'}
@@ -345,36 +354,38 @@ export default function TrackedAccounts() {
                         >
                           delete
                         </button>
-                        <span className={`material-symbols-outlined text-on-surface-variant/40 md:hidden transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+                        <span className={`material-symbols-outlined text-on-surface-variant/40 transition-transform ${isExpanded ? 'rotate-180' : 'rotate-0'}`}>
                           expand_more
                         </span>
                       </div>
                     </div>
 
                     {isExpanded && (
-                      <div className="bg-surface-container-low/50">
-                        <div className="p-6 md:p-8 grid md:grid-cols-2 gap-8 border-t border-white/5">
-                          <div>
+                      <div className="bg-surface-container-low/50 w-full overflow-hidden">
+                        <div className="p-6 md:p-8 flex flex-col md:flex-row gap-6 md:gap-8 border-t border-white/5">
+                          <div className="flex-1 min-w-0 md:pr-4 md:border-r md:border-white/5">
                             <h4 className="font-label-sm text-label-sm text-primary uppercase mb-4 tracking-widest flex items-center gap-2">
                               <span className="material-symbols-outlined text-[16px]">article</span> Recent Posts
                             </h4>
                             <div className="space-y-4">
                               {!account.reddit_data ? (
                                 <div className="p-4 rounded-lg bg-surface-container-highest flex items-center justify-center text-on-surface-variant/60 italic">Fetching live data...</div>
+                              ) : account.reddit_data.recent_posts?.length === 0 ? (
+                                <div className="p-4 rounded-lg bg-surface-container-highest flex items-center justify-center text-on-surface-variant/60 italic">No recent posts.</div>
                               ) : (
                                 account.reddit_data.recent_posts?.map((post, idx) => {
                                   const isTracked = (account.posts || []).some(p => p.url === post.url);
                                   return (
                                     <div key={idx} className={`p-3 rounded-lg border transition-colors ${isTracked ? 'bg-white/5 border-white/5' : 'bg-primary/5 border-primary/20'}`}>
-                                      <div className="flex items-start justify-between gap-2">
+                                      <div className="flex items-start justify-between gap-3">
                                         <a href={post.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0">
-                                          <p className="text-body-md text-on-surface line-clamp-1 hover:text-primary transition-colors">{post.title}</p>
+                                          <p className="text-body-md text-on-surface line-clamp-2 hover:text-primary transition-colors">{post.title}</p>
                                           <span className="text-label-sm text-on-surface-variant/40">{post.ups} upvotes</span>
                                         </a>
                                         {!isTracked && (
                                           <button
                                             onClick={() => quickTrackMutation.mutate({ url: post.url, type: 'posts' })}
-                                            className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-on-primary text-label-sm font-label-sm hover:bg-primary/80 transition-colors"
+                                            className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-primary text-on-primary text-label-sm font-label-sm hover:bg-primary/80 transition-colors cursor-pointer"
                                           >
                                             <span className="material-symbols-outlined text-[14px]">add</span>NEW
                                           </button>
@@ -387,27 +398,29 @@ export default function TrackedAccounts() {
                             </div>
                           </div>
                           
-                          <div>
+                          <div className="flex-1 min-w-0 md:pl-4">
                             <h4 className="font-label-sm text-label-sm text-secondary uppercase mb-4 tracking-widest flex items-center gap-2">
                               <span className="material-symbols-outlined text-[16px]">comment</span> Recent Comments
                             </h4>
                             <div className="space-y-4">
                               {!account.reddit_data ? (
                                 <div className="p-4 rounded-lg bg-surface-container-highest flex items-center justify-center text-on-surface-variant/60 italic">Fetching live data...</div>
+                              ) : account.reddit_data.recent_comments?.length === 0 ? (
+                                <div className="p-4 rounded-lg bg-surface-container-highest flex items-center justify-center text-on-surface-variant/60 italic">No recent comments.</div>
                               ) : (
                                 account.reddit_data.recent_comments?.map((comment, idx) => {
                                   const isTracked = (account.comments || []).some(c => c.url === comment.url);
                                   return (
                                     <div key={idx} className={`p-3 rounded-lg border transition-colors ${isTracked ? 'bg-white/5 border-white/5' : 'bg-secondary/5 border-secondary/20'}`}>
-                                      <div className="flex items-start justify-between gap-2">
+                                      <div className="flex items-start justify-between gap-3">
                                         <a href={comment.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0">
-                                          <p className="text-label-md text-on-surface italic line-clamp-2 hover:text-secondary transition-colors">"{comment.body}"</p>
+                                          <p className="text-label-md text-on-surface italic line-clamp-3 hover:text-secondary transition-colors">"{comment.body}"</p>
                                           <span className="text-label-sm text-on-surface-variant/40">{comment.ups} upvotes</span>
                                         </a>
                                         {!isTracked && (
                                           <button
                                             onClick={() => quickTrackMutation.mutate({ url: comment.url, type: 'comments' })}
-                                            className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-secondary text-on-secondary text-label-sm font-label-sm hover:bg-secondary/80 transition-colors"
+                                            className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-secondary text-on-secondary text-label-sm font-label-sm hover:bg-secondary/80 transition-colors cursor-pointer"
                                           >
                                             <span className="material-symbols-outlined text-[14px]">add</span>NEW
                                           </button>
